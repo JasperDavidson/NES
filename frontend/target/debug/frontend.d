@@ -1,0 +1,1 @@
+C:\Users\Jasper\ Davidson\Documents\Programming\Rust\nes\frontend\target\debug\frontend.exe: C:\Users\Jasper\ Davidson\Documents\Programming\Rust\nes\frontend\src\main.rs C:\Users\Jasper\ Davidson\Documents\Programming\Rust\nes\nes_components\src\lib.rs

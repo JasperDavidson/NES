@@ -1,0 +1,9 @@
+[package]
+name = "frontend"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+minifb = "0.27.0"
+nes_components = { path = "../nes_components" }
+serde_json = "1.0.128"

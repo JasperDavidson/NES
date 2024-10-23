@@ -1,0 +1,10 @@
+C:\Users\Jasper Davidson\Documents\Programming\Rust\nes\frontend\target\debug\deps\libautocfg-5c52352a8290f693.rmeta: C:\Users\Jasper\ Davidson\.cargo\registry\src\index.crates.io-6f17d22bba15001f\autocfg-1.4.0\src/lib.rs C:\Users\Jasper\ Davidson\.cargo\registry\src\index.crates.io-6f17d22bba15001f\autocfg-1.4.0\src\error.rs C:\Users\Jasper\ Davidson\.cargo\registry\src\index.crates.io-6f17d22bba15001f\autocfg-1.4.0\src\rustc.rs C:\Users\Jasper\ Davidson\.cargo\registry\src\index.crates.io-6f17d22bba15001f\autocfg-1.4.0\src\version.rs
+
+C:\Users\Jasper Davidson\Documents\Programming\Rust\nes\frontend\target\debug\deps\libautocfg-5c52352a8290f693.rlib: C:\Users\Jasper\ Davidson\.cargo\registry\src\index.crates.io-6f17d22bba15001f\autocfg-1.4.0\src/lib.rs C:\Users\Jasper\ Davidson\.cargo\registry\src\index.crates.io-6f17d22bba15001f\autocfg-1.4.0\src\error.rs C:\Users\Jasper\ Davidson\.cargo\registry\src\index.crates.io-6f17d22bba15001f\autocfg-1.4.0\src\rustc.rs C:\Users\Jasper\ Davidson\.cargo\registry\src\index.crates.io-6f17d22bba15001f\autocfg-1.4.0\src\version.rs
+
+C:\Users\Jasper Davidson\Documents\Programming\Rust\nes\frontend\target\debug\deps\autocfg-5c52352a8290f693.d: C:\Users\Jasper\ Davidson\.cargo\registry\src\index.crates.io-6f17d22bba15001f\autocfg-1.4.0\src/lib.rs C:\Users\Jasper\ Davidson\.cargo\registry\src\index.crates.io-6f17d22bba15001f\autocfg-1.4.0\src\error.rs C:\Users\Jasper\ Davidson\.cargo\registry\src\index.crates.io-6f17d22bba15001f\autocfg-1.4.0\src\rustc.rs C:\Users\Jasper\ Davidson\.cargo\registry\src\index.crates.io-6f17d22bba15001f\autocfg-1.4.0\src\version.rs
+
+C:\Users\Jasper\ Davidson\.cargo\registry\src\index.crates.io-6f17d22bba15001f\autocfg-1.4.0\src/lib.rs:
+C:\Users\Jasper\ Davidson\.cargo\registry\src\index.crates.io-6f17d22bba15001f\autocfg-1.4.0\src\error.rs:
+C:\Users\Jasper\ Davidson\.cargo\registry\src\index.crates.io-6f17d22bba15001f\autocfg-1.4.0\src\rustc.rs:
+C:\Users\Jasper\ Davidson\.cargo\registry\src\index.crates.io-6f17d22bba15001f\autocfg-1.4.0\src\version.rs:

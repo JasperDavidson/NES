@@ -19,6 +19,7 @@ const APU_IO_REGISTERS_END: u16 = 0x4017;
 const PATTERN_TABLES_BEGIN: u16 = 0x0000;
 const PATTERN_TABLES_END: u16 = 0x1FFF;
 const NAME_TABLES_BEGIN: u16 = 0x2000;
+const NAME_TABLE_SIZE: u16 = 0x400;
 const NAME_TABLES_END: u16 = 0x2FFF;
 const PALETTE_RAM_BEGIN: u16 = 0x3F00;
 const PALETTE_RAM_END: u16 = 0x3FFF;
@@ -167,23 +168,23 @@ impl Mem for CPUBus {
 
                     // Returns a byte from OAM
                     0x2004 => {
-                        let return_value = self.ppu.oam[self.ppu.oam_data as usize];
+                        let return_value = self.ppu.oam[self.ppu.oam_addr as usize];
                         self.ppu_latch = return_value;
 
                         return return_value
                     }
 
-                    // Sets the ppu latch to a byte from VRAM
+                    // Sets the vram latch to a byte from VRAM
                     // If the address is from palette memory it is instantly returned
                     0x2007 => {
                         let return_value;
-                        if (mirrored_addr <= 0x3FFF) & (mirrored_addr >= 0x3F00) {
+                        if (self.ppu.v <= 0x3FFF) & (self.ppu.v >= 0x3F00) {
                             return_value = self.ppu.read_byte(self.ppu.v);
                             // Still sets the ppu latch to the value "underneath"
-                            self.ppu_latch = self.ppu.read_byte(self.ppu.v % 0x2000);
+                            self.ppu.vram_latch = self.ppu.read_byte(self.ppu.v % 0x2000);
                         } else {
-                            return_value = self.ppu_latch;
-                            self.ppu_latch = self.ppu.read_byte(self.ppu.v);
+                            return_value = self.ppu.vram_latch;
+                            self.ppu.vram_latch = self.ppu.read_byte(self.ppu.v);
                         }
 
                         self.ppu.increment_vram();
@@ -196,6 +197,7 @@ impl Mem for CPUBus {
             },
 
             APU_IO_REGISTERS..=APU_IO_REGISTERS_END => {
+                // TODO: APU NOT IMPLEMENTED YET
                 return 0
             },
 
@@ -216,13 +218,12 @@ impl Mem for CPUBus {
             },
 
             PPU_REGISTERS..=PPU_REGISTERS_MIRRORS_END => {
-                let nmirrored_addr = addr & 0x2007;
-
-                self.ppu_latch as u16
+                return self.ppu_latch as u16
             },
 
             APU_IO_REGISTERS..=APU_IO_REGISTERS_END => {
-                todo!("APU not implemented yet!")
+                // TODO: APU NOT IMPLEMENTED YET
+                return 0
             },
 
             0x8000..=0xFFFF => { ((self.read_prg_rom(&(addr + 1)) as u16) << 8) | self.read_prg_rom(&addr) as u16 },
@@ -232,6 +233,8 @@ impl Mem for CPUBus {
     }
 
     fn mem_write(&mut self, addr: u16, data: u8) {
+        //println!("write addr: {}", addr);
+
         match addr {
             RAM..=RAM_MIRRORS_END => {
                 let unmirrored_addr = addr & 0x07FF;
@@ -239,8 +242,8 @@ impl Mem for CPUBus {
             },
 
             PPU_REGISTERS..=PPU_REGISTERS_MIRRORS_END => {
-                let unmirrored_addr = addr & 0x2007;
-                match unmirrored_addr {
+                let mirrored_addr = addr & 0x2007;
+                match mirrored_addr {
                     // Sets the control register of the PPU
                     0x2000 => {
                         self.ppu.ctrl = data;
@@ -288,11 +291,9 @@ impl Mem for CPUBus {
                         self.ppu_latch = data;
                     },
 
-                    // Sets the value of the data register, moves vram forward
+                    // Sets the value of the data register and moves vram forward
                     0x2007 => {
-                        self.ppu.data = data;
-                        self.ppu.cpu_write_byte();
-                        self.ppu.increment_vram();
+                        self.ppu.cpu_write_byte(data);
 
                         self.ppu_latch = data;
                     }
@@ -312,7 +313,7 @@ impl Mem for CPUBus {
             },
 
             APU_IO_REGISTERS..=APU_IO_REGISTERS_END => {
-                todo!("APU not implemented yet!")
+                // TODO: APU NOT IMPLEMENTED YET
             },
 
             _ => { self.open_bus = data as u16; }
@@ -345,7 +346,7 @@ impl Mem for CPUBus {
             },
 
             APU_IO_REGISTERS..=APU_IO_REGISTERS_END => {
-                todo!("APU not implemented yet!")
+                // TODO: APU NOT IMPLEMENTED YET
             },
 
             _ => { self.open_bus = data; }
@@ -362,14 +363,25 @@ impl PPUBus {
             },
 
             NAME_TABLES_BEGIN..=NAME_TABLES_END => {
-                let mirrored_addr = addr - NAME_TABLES_BEGIN;
-                self.vram[mirrored_addr as usize]
+                //println!("The addr is: {}", addr);
+                //println!("The mirrored addr is: {}", (addr % 0x400));
+
+                let base_addr: u16 = addr & (NAME_TABLE_SIZE - 1);
+
+                let vram_index: u16 = match (self.mirroring, addr) {
+                    (Mirroring::HORIZONTAL, 0x2000..0x2800) |
+                    (Mirroring::VERTICAL, 0x2000..0x2400) |
+                    (Mirroring::VERTICAL, 0x2800..0x2C00) => base_addr,
+
+                    _ => { base_addr + (NAME_TABLE_SIZE - 1) }
+                };
+
+                return self.vram[vram_index as usize]
             },
 
             PALETTE_RAM_BEGIN..=PALETTE_RAM_END => {
                 // This value is what points to the red byte in palette_storage (+1 -> green and +2 -> blue)
-                let mirrored_addr = (addr - PALETTE_RAM_BEGIN) % NUM_PALETTE_REGISTERS as u16;
-                self.palette_mem[mirrored_addr as usize]
+                return (addr - PALETTE_RAM_BEGIN) as u8 & (NUM_PALETTE_REGISTERS - 1) as u8
             }
 
             // Open bus behavior — multiplexed with pins 31-38, accesses the low byte of the address
@@ -380,39 +392,27 @@ impl PPUBus {
     pub fn mem_write(&mut self, addr: u16, data: u8) {
         match addr {
             NAME_TABLES_BEGIN..=NAME_TABLES_END => {
-                if self.mirroring == Mirroring::HORIZONTAL {
-                    match addr {
-                        0x2000..0x2800 => {
-                            self.vram[((addr % 0x400) + 0x2000) as usize] = data;
-                        },
+                let base_addr: u16 = addr & (NAME_TABLE_SIZE - 1);
 
-                        _ => {
-                            self.vram[((addr % 0x400) + 0x2800) as usize] = data;
-                        }
-                    }
-                }
+                let vram_index: u16 = match (self.mirroring, addr) {
+                    (Mirroring::HORIZONTAL, 0x2000..0x2800) |
+                    (Mirroring::VERTICAL, 0x2000..0x2400) |
+                    (Mirroring::VERTICAL, 0x2800..0x2C00) => base_addr,
+    
+                    _ => { base_addr + (NAME_TABLE_SIZE - 1) }
+                };
 
-                if self.mirroring == Mirroring::VERTICAL {
-                    match addr {
-                        (0x2000..0x2400) | (0x2800..0x2C00) => {
-                            self.vram[((addr % 0x400) + 0x2000) as usize] = data;
-                        },
-
-                        _ => {
-                            self.vram[((addr % 0x400) + 0x2400) as usize] = data;
-                        }
-                    }
-                }
+                self.vram[vram_index as usize] = data;
             },
 
             PALETTE_RAM_BEGIN..=PALETTE_RAM_END => {
-                let mirrored_addr = (addr - PALETTE_RAM_BEGIN) % NUM_PALETTE_REGISTERS as u16;
+                let mirrored_addr = (addr - PALETTE_RAM_BEGIN) & (NUM_PALETTE_REGISTERS - 1) as u16;
 
                 // This value is what points to the red byte in palette_storage (+1 -> green and +2 -> blue)
-                self.palette_mem[mirrored_addr as usize] = mirrored_addr as u8;
+                self.palette_mem[mirrored_addr as usize] = data;
             }
 
-            _ => { panic!("Attempted to write to read-only ppu space at address {:X}!", addr) }
+            _ => { println!("Attempted to write to read-only ppu space at address {:X}!", addr) }
         }
     }
 }
@@ -429,7 +429,6 @@ pub struct PPU {
     oam_addr: u8, // > write - CPU writes the address of OAM it wants to access here. Always returns to 0 after a frame
     oam_data: u8, // <> read/write - (Writes increment oam_addr, reads do not). ONLY USE DURING VBLANK else corruption
     scroll: u8, // >> write x2 - Tells PPU which pixel from nametable should be in top left - first is x scroll, second is y scroll
-    data: u8, // <> read/write - Exists so the CPU can set VRAM data
     oam_dma: u8, // > write - Stores the page number of the CPU to start transferring data to OAM
     v: u16, // During rendering, used for the scroll position. Outside of rendering, used as the current VRAM address
     t: u16, // During rendering, specifies the starting coarse-x scroll and startying y scroll. Outside, holds scroll/VRAM addr --> v
@@ -440,6 +439,7 @@ pub struct PPU {
     low_attr_shift_reg: u8,
     high_attr_shift_reg: u8,
     ppu_latch: u8, // Serves as an address latch — the low 8 bits overlap with the data bus
+    vram_latch: u8, // Used to store read values when the PPU reads 0x2007
     nmi: u8,
     color_buffer: [u32; SCREEN_WIDTH * SCREEN_HEIGHT], // Stores the rgb colors of each pixel displayed each frame
     pub state: PpuState, // Keeps the PPU state when alternating between the CPU and PPU
@@ -492,7 +492,6 @@ impl PPU {
               oam_addr: 0,
               oam_data: 0,
               scroll: 0,
-              data: 0,
               oam_dma: 0,
               v: 0,
               t: 0,
@@ -504,6 +503,7 @@ impl PPU {
               high_attr_shift_reg: 0,
               color_buffer: [0; SCREEN_WIDTH * SCREEN_HEIGHT],
               ppu_latch: 0,
+              vram_latch: 0,
               nmi: 0,
               state: PpuState { nametable_data: 0, attribute_data: 0, low_bitplane: 0, high_bitplane: 0, attribute_latch: 0, scanline: 0, dots: 0, sprite_counter: 0, valid_sprite: false, secondary_oam_addr: 0, sprite_addr: 0, even_odd_frame: true },
               sprite_y: 0,
@@ -525,55 +525,59 @@ impl PPU {
     }
 
     // Doesn't increase dots because it's through the CPU
-    fn cpu_write_byte(&mut self) {
-        self.ppu_bus.mem_write(self.v, self.data);
+    fn cpu_write_byte(&mut self, data: u8) {
+        self.ppu_bus.mem_write(self.v, data);
+        self.increment_vram();
     }
 
-    // Increments the VRAM address. Used, for instance, after accessing a VRAM element through the CPU
+    // Increments the VRAM address. Used after accessing a VRAM element through the CPU (writing to 0x2007)
     fn increment_vram(&mut self) {
-        if self.ctrl | 0x4 > 0 {
-            self.v += 32; // Going down
+        if self.ctrl & 0x4 > 0 {
+            self.v = (self.v + 32) & 0x3FFF; // Going down
         } else {
-            self.v += 1; // Going across
+            self.v = (self.v + 1) & 0x3FFF; // Going across
         }
     }
 
-    /// Loads register t with VRAM address bytes through PPUADDR calls
+    // Loads register t with VRAM address bytes through 0x2006 writes
     fn load_addr_byte(&mut self, addr: u16) {
         if self.w == 0 {
-            self.t = addr << 8; // Storing the upper byte
-            self.w = 1; // Setting the write latch (i.e. saying we want to write to the lower byte now)
+            self.t = (self.t & !0b1111_1111_0000_0000) | ((addr << 8) & 0b1111_1111_0000_0000); // Storing the upper byte
+            self.w = 1; // Setting the write latch (saying we want to write to the lower byte now)
         } else {
-            self.t |= addr & 0x00FF; // Storing the low byte
+            self.t = (self.t & !0b1111_1111) | (addr & 0b1111_1111); // Storing the lower byte
             self.v = self.t;
-            // Write latch is *only* reset when the status register is accessed
+            self.w = 0;
         }
     }
 
-    /// Sets oam data when called by CPU
+    // Sets oam data when called by CPU
     fn oam_data_set(&mut self) {
         self.oam[self.oam_addr as usize] = self.oam_data;
     }
 
-    /// Loads the scroll register with coarse x/y and fine x/y
+    // Loading t with the scroll data
     fn load_scroll(&mut self, scroll_data: u8) {
         if self.w == 0 {
-            self.x = scroll_data >> 5;
-            self.scroll = scroll_data & 0b0001_1111;
+            self.x = scroll_data & 0b111;
+            self.t = (self.t & !0b1_1111) | ((scroll_data as u16) >> 3);
+            self.w = 1;
         } else {
-            self.scroll = scroll_data;
+            self.t = (self.t & !0b11_1110_0000) | (((scroll_data as u16) << 2) & 0b11_1110_0000);
+            self.t = (self.t & !0b111_0000_0000_0000) | (((scroll_data as u16) << 12) & 0b111_0000_0000_0000);
+            self.w = 0;
         }
     }
 
     // Returns the code of the palette table used for the current nametable address
     fn fetch_attribute_data(&mut self, addr: u16) -> u8 {
-        let x = (self.v % 0x400) % 32;
-        let y = (self.v % 0x400) / 32;
+        let x = (addr % 0x400) % 32;
+        let y = (addr % 0x400) / 32;
         let mut attribute_addr = 0x23C0 + (x / 4) + ((y / 4) * 8);
 
         // Adjusts for mirroring
         if self.ppu_bus.mirroring == Mirroring::HORIZONTAL {
-            if self.v > 0x2800 {
+            if self.v > 0x2400 {
                 attribute_addr += 0x400 * 2; // Mirroring adjustment for second nametable
             }
         } else if self.ppu_bus.mirroring == Mirroring::VERTICAL {
@@ -584,7 +588,7 @@ impl PPU {
 
         let palette_value: u8 = self.read_byte(attribute_addr);
         // Determine palette selection based on position within the 4x4 attribute block
-        let palette_choice: u8 = match (x % 4 / 2, y % 4 / 2) {
+        let palette_choice: u8 = match ((x % 4) / 2, (y % 4) / 2) {
             (0, 0) => palette_value & 0x3,  // Top-left quadrant
             (1, 0) => (palette_value >> 2) & 0x3,  // Top-right quadrant
             (0, 1) => (palette_value >> 4) & 0x3,  // Bottom-left quadrant
@@ -613,6 +617,11 @@ impl PPU {
         return self.ppu_bus.mem_read(pattern_addr)
     }
 
+    // Loads the address into the PPU latch (multiplexed with bottom 8 address bits)
+    fn load_latch(&mut self, addr: u16) {
+        self.ppu_latch = (addr & 0xFF) as u8;
+    }
+
     fn mem_fetch(&mut self, addr: u16) -> u8 {
         let rtrn = self.read_byte((addr & 0xFF00) | (self.ppu_latch as u16));
         self.ppu_latch = (addr & 0xFF) as u8;
@@ -620,24 +629,6 @@ impl PPU {
         self.v += 1;
 
         rtrn
-    }
-
-    // Each set of 8 pixels takes 8 dots since one dot is used to load the address, another is used to fetch
-    // The lower 8 bits of the address are shared with the data bus
-    fn produce_eight_pixels(&mut self) -> (u8, u8, u8, u8) {
-        let _ = self.mem_fetch(self.v);
-        let nametable_data = self.mem_fetch(self.v);
-
-        let _ = self.mem_fetch(self.v);
-        let attribute_data = self.fetch_attribute_data(self.v);
-
-        let _ = self.mem_fetch(self.v);
-        let low_bitplane = self.fetch_pattern_table(false, nametable_data);
-
-        let _ = self.mem_fetch(self.v);
-        let high_bitplane = self.fetch_pattern_table(true, nametable_data);
-        
-        return (nametable_data, attribute_data, low_bitplane, high_bitplane)
     }
 
     fn shift(&mut self) {
@@ -677,28 +668,28 @@ impl PPU {
         match self.state.dots % 8 {
             // 1, 3, 5, 7 are all used to store the address in the latch
             1 => {
-                self.mem_fetch(self.v);
+                self.load_latch(self.v);
             },
             // Fetches the pattern table address from the nametable
             2 => {
                 self.state.nametable_data = self.mem_fetch(self.v);
             },
             3 => {
-                self.mem_fetch(self.v);
+                self.load_latch(self.v);
             },
             // Fetches the attribute data from the attribute table
             4 => {
                 self.state.attribute_data = self.fetch_attribute_data(self.v);
             },
             5 => {
-                self.mem_fetch(self.v);
+                self.load_latch(self.v);
             },
             // Fetches the low pattern bitplane from the pattern table
             6 => {
                 self.state.low_bitplane = self.fetch_pattern_table(false, self.state.nametable_data);
             },
             7 => {
-                self.mem_fetch(self.v);
+                self.load_latch(self.v);
             },
             // Fetches the high pattern bitplane from the pattern table
             _ => {
@@ -811,7 +802,7 @@ impl PPU {
     // 0 if sprite pixel is selected; 1 if background pixel is selected
     fn compare_against_sprites(&mut self) {
         for sprite in self.sprite_pixel_buffer {
-            if sprite.x_coordinate == (self.state.dots - 8 + self.x as u16) as u8 {
+            if sprite.x_coordinate == self.state.dots as u8 {
                 if sprite.pixel & 0b11 != 0 {
                     if sprite.priority == 0 {
                         // Logical and with 0b0001_0000 because a 5th bit of one acceses the sprite palette tables
@@ -828,12 +819,12 @@ impl PPU {
         self.pixel = self.back_pixel;
     }
 
-    fn fetch_rgb(&mut self) -> (u8, u8, u8) {
+    fn fetch_rgb(&self) -> (u8, u8, u8) {
         let palette_addr = self.ppu_bus.mem_read(PALETTE_RAM_BEGIN as u16 + self.pixel as u16) as usize;
 
-        let r = self.ppu_bus.palette_storage[palette_addr];
-        let g = self.ppu_bus.palette_storage[palette_addr + 1];
-        let b = self.ppu_bus.palette_storage[palette_addr + 2];
+        let r = self.ppu_bus.palette_storage[palette_addr * 3];
+        let g = self.ppu_bus.palette_storage[palette_addr * 3 + 1];
+        let b = self.ppu_bus.palette_storage[palette_addr * 3 + 2];
 
         return (r, g, b)
     }
@@ -849,6 +840,7 @@ impl PPU {
                 // No return statement because we *do* want it to run cycle 1 since cycle 0 is skipped
                 self.state.dots += 1;
             } else if self.state.dots == 0 && self.state.scanline == 00 {
+                self.state.dots += 1;
                 return
             }
 
@@ -864,10 +856,10 @@ impl PPU {
 
                 // Assembling a four bit pixel based on the fine x register
                 // 0 bit: Low pattern table, 1 bit: High pattern table, 2 bit: Low palette bit, 3 bit: High palette bit
-                self.back_pixel = (((self.low_pttrn_shift_reg >> 15 - self.x) & 0x1) as u8)
-                                    | ((((self.high_pttrn_shift_reg >> 15 - self.x) & 0x1) << 1) as u8)
-                                    | (((self.low_attr_shift_reg >> 7 - self.x) & 0x1) << 2)
-                                    | (((self.high_attr_shift_reg >> 7 - self.x) & 0x1) << 3);
+                self.back_pixel = (((self.low_pttrn_shift_reg >> (15 - self.x)) & 0x1) as u8)
+                                    | ((((self.high_pttrn_shift_reg >> (15 - self.x)) & 0x1) << 1) as u8)
+                                    | (((self.low_attr_shift_reg >> (7 - self.x)) & 0x1) << 2)
+                                    | (((self.high_attr_shift_reg >> (7 - self.x)) & 0x1) << 3);
 
                 if self.state.scanline > 0 {
                     self.compare_against_sprites();
@@ -879,9 +871,11 @@ impl PPU {
                 let rgb_value = ((r as u32) << 16) | ((g as u32) << 8) | b as u32;
 
                 // Stores the color output of the pixel in a buffer
-                self.color_buffer[(self.state.scanline * 256 + self.state.dots) as usize] = rgb_value;
+                let index = (self.state.scanline * 256 + self.state.dots) as usize;
 
-                // self.window.update_with_buffer(&self.color_buffer, SCREEN_WIDTH, SCREEN_HEIGHT).expect("Failed to update screen!");
+                if index < self.color_buffer.len() {
+                    self.color_buffer[index] = rgb_value;
+                }
 
                 self.shift();
             } else if self.state.dots <= 320 {
@@ -919,23 +913,36 @@ impl PPU {
                 if self.state.dots == 341 {
                     self.state.dots = 0;
                     self.state.scanline += 1;
+                    self.sprite_buffer_addr = 0;
 
                     return
                 }
             }
         }
 
-        // Start of Vblank — Generate an NMI if requested by the CPU
+        // PPU just idles here (NMI is *not* set until scanline 241)
+        if self.state.scanline == 240 {
+            if self.state.dots == 341 {
+                self.state.scanline += 1;
+                self.state.dots = 0;
+            }
+        }
+
+        // Start of Vblank — Generate an NMI if requested by the CPU; also display the next frame
         if self.state.scanline == 241 {
             self.status |= 0b10000000;
             self.oam_addr_overflow = false;
 
             // Doesn't active the NMI until the *second* PPU cycle
-            if self.ctrl & 0b10000000 > 0 && self.state.dots == 1 {
+            if self.ctrl & 0b10000000 > 0 && self.state.dots >= 1 {
                 self.nmi = 1;
-            }
 
-            self.state.dots += 1;
+                self.state.even_odd_frame = !self.state.even_odd_frame;
+
+                // Update the screen
+                self.window.update_with_buffer(&self.color_buffer, SCREEN_WIDTH, SCREEN_HEIGHT).expect("Failed to update screen!");
+                self.color_buffer.fill(0);
+            }
 
             if self.state.dots == 341 {
                 self.state.scanline += 1;
@@ -945,11 +952,31 @@ impl PPU {
             }
         }
 
+        // End of Vblank (scanline 260) — Cancel the ability to create new NMI's and fill shift registers for next frame (first two tiles)
         // The PPU doesn't do anything during these scanlines — just increases the clock (allows the PPU to change memory during Vblank)
         if self.state.scanline < 261 && self.state.scanline > 241 {
-            self.state.dots += 1;
+            // Doesn't active the NMI until the *second* PPU cycle
+            if self.ctrl & 0b10000000 > 0 && self.state.dots >= 1 {
+                self.nmi = 1;
 
-            if self.state.dots == 341 {
+                self.state.even_odd_frame = !self.state.even_odd_frame;
+            }
+
+            // Doesn't active the NMI until the *second* PPU cycle
+            if self.ctrl & 0b10000000 > 0 && self.state.dots >= 1 {
+                self.nmi = 1;
+
+                self.state.even_odd_frame = !self.state.even_odd_frame;
+            }
+
+            if self.state.dots == 341 && self.state.scanline == 260 {
+                self.status &= !0b10000000;
+
+                self.state.scanline += 1;
+                self.state.dots = 0;
+
+                 return
+            } else if self.state.dots == 341 {
                 self.state.scanline += 1;
                 self.state.dots = 0;
 
@@ -957,10 +984,12 @@ impl PPU {
             }
         }
 
-        // End of Vblank — Cancel the ability to create new NMI's and fill shift registers for next frame (first two tiles)
         // Also fetches the first two tiles of the first scanline for the next frame
         if self.state.scanline == 261 {
-            self.status &= !0b10000000;
+            // Clearing the 3 flags in PPUSTATUS (0x2002)
+            if self.state.dots == 1 {
+                self.status &= 0b0001_1111;
+            }
 
             if self.state.dots <= 336 {
                 // This will load the pattern shift registers with two tiles worth of data
@@ -980,16 +1009,22 @@ impl PPU {
             }
 
             // Reset the dots and scanline for the next frame (also sets the next frame to be even/odd)
-            // Ends one frame early if it is an even frame
+            // Also resets various other things
             if self.state.dots == 341 {
                 self.state.dots = 0;
                 self.state.scanline = 0;
-                self.state.even_odd_frame = !self.state.even_odd_frame;
+
+                // Clearning sprite overflow and sprite zero hit
+                self.status &= !0x20;
+                self.status &= !0x40;
+
+                // Resets the write latch
+                self.w = 0;
 
                 return 
             }
         }
-
+        
         self.state.dots += 1;
     }
 }
@@ -1033,6 +1068,10 @@ impl CPU {
     fn nmi(&mut self) {
         if self.cpu_bus.ppu.nmi > 0 {
             self.cpu_bus.ppu.nmi = 0;
+
+            // padding byte
+            let _ = self.fetch_byte();
+
             let low_pc = (self.pc & 0x00FF) as u8;
             let high_pc = ((self.pc & 0xFF00) >> 8) as u8;
 
@@ -1054,6 +1093,9 @@ impl CPU {
         let start_addr = (start_addr_high as u16) << 8;
         let end_addr = start_addr + 255;
 
+        println!("start addr: {}", start_addr);
+        println!("end addr: {}", end_addr);
+
         for addr in start_addr..=end_addr {
             let sprite_data = self.read_byte(addr);
             self.write_oam(sprite_data);
@@ -1066,6 +1108,7 @@ impl CPU {
         self.cpu_bus.mem_write(address, data);
 
         for _ in 0..=2 {
+            // println!("ppu_tick write");
             self.cpu_bus.ppu.ppu_tick();
         }
 
@@ -1079,16 +1122,17 @@ impl CPU {
     }
 
     pub fn read_byte(&mut self, address: u16) -> u8 {
-        // If a halt has been requested, the CPU stops and executes the DMA
+        // If a halt has been requested, the CPU stops and executes the DMA — only allowed on read cycles
         if self.cpu_bus.halt_flag {
-            self.execute_oam_dma(self.cpu_bus.ppu.oam_dma);
             self.cpu_bus.halt_flag = false;
+            self.execute_oam_dma(self.cpu_bus.ppu.oam_dma);
         }
 
         self.cpu_clk += 1;
         let rtrn = self.cpu_bus.mem_read(address);
 
         for _ in 0..=2 {
+            // println!("ppu_tick read");
             self.cpu_bus.ppu.ppu_tick();
         }
         
@@ -1156,7 +1200,7 @@ impl CPU {
 
     pub fn decode(&mut self) {
         let instruction = self.fetch_byte();
-        // println!("instruction: {:X}", instruction);
+        //println!("instruction: {:X}", instruction);
         // println!("pc: {}, s: {}, a: {}, x: {}, y: {}, p: {}", self.pc.wrapping_sub(1), self.sp, self.accumulator, self.x, self.y, self.status);
 
         let aaa = (instruction >> 5) & 0b111;
@@ -1193,7 +1237,6 @@ impl CPU {
                 let low_pc = (self.pc & 0x00FF) as u8;
                 let high_pc = ((self.pc & 0xFF00) >> 8) as u8;
 
-                // println!("pushing: {}", (self.status | 0b10000));
                 self.push_stack(high_pc);
                 self.push_stack(low_pc);
                 self.push_stack(self.status | 0b1_0000);
@@ -2009,6 +2052,7 @@ impl CPU {
                             // Absolute addressing
                             3 => {
                                 let addr = self.fetch_word();
+                                //println!("addr: {}", addr);
 
                                 self.write_byte(addr, self.accumulator);
                             },

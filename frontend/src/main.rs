@@ -48,7 +48,7 @@ fn main() -> Result<()> {
         SCREEN_WIDTH,
         SCREEN_HEIGHT,
         minifb::WindowOptions {
-            scale: minifb::Scale::X4,
+            scale: minifb::Scale::X2,
             ..Default::default()
         }
     ).unwrap_or_else(|e| panic!("{}", e));
@@ -121,7 +121,7 @@ fn main() -> Result<()> {
 
     loop {
         cpu.decode();
-        println!("dot: {}", cpu.cpu_bus.ppu.state.dots);
+        //println!("dot: {}", cpu.cpu_bus.ppu.state.dots);
         println!("scanline: {}", cpu.cpu_bus.ppu.state.scanline);
     }
 

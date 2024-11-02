@@ -121,7 +121,7 @@ fn main() -> Result<()> {
 
     loop {
         cpu.decode();
-        //println!("dot: {}", cpu.cpu_bus.ppu.state.dots);
+        // println!("dot: {}", cpu.cpu_bus.ppu.state.dots);
         println!("scanline: {}", cpu.cpu_bus.ppu.state.scanline);
     }
 

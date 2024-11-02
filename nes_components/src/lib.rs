@@ -645,7 +645,7 @@ impl PPU {
     }
 
     fn shift_reload(&mut self) {
-        // I don't think this is how reloadng the attribute shift registers will work (you punched the bursar!? how'd you do it)
+        // I don't think this is how reloadng the attribute shift registers will work
         // if self.state.attribute_data & 0b0000_0001 != 0 {
         //     self.low_attr_shift_reg = 0xFF;
         // } else {
@@ -694,6 +694,8 @@ impl PPU {
             // Fetches the high pattern bitplane from the pattern table
             _ => {
                 self.state.high_bitplane = self.fetch_pattern_table(true, self.state.nametable_data);
+                Should we be incrementing v by one here???
+                self.v += 1;
             },
         }
     }
@@ -706,7 +708,7 @@ impl PPU {
 
         if self.state.dots % 2 == 0 {
             // In the first 64 cycles the secondary OAM buffer is filled with 0xFF regardless
-            if self.state.dots < 64 && self.state.dots >= 1 {
+            if self.state.dots < 64 {
                 self.secondary_oam[self.state.secondary_oam_addr as usize] = 0xFF;
                 self.state.secondary_oam_addr += 1;
                 return
@@ -832,6 +834,8 @@ impl PPU {
     // Note that the data for the first two tiles should already be fetched from previous scanline
     // Sprites cannot be rendered on the first scanline
     pub fn ppu_tick(&mut self) {
+        // println!("Scanline: {}", self.state.scanline);
+   
         // Visible scanlines
         if self.state.scanline < 240 {
             // If it's an even frame, the very first cycle is skipped — helps with smoothness when not scrolling
@@ -839,7 +843,7 @@ impl PPU {
             if self.state.even_odd_frame && self.state.dots == 0 && self.state.scanline == 0 {
                 // No return statement because we *do* want it to run cycle 1 since cycle 0 is skipped
                 self.state.dots += 1;
-            } else if self.state.dots == 0 && self.state.scanline == 00 {
+            } else if self.state.dots == 0 && self.state.scanline == 0 {
                 self.state.dots += 1;
                 return
             }
@@ -849,7 +853,7 @@ impl PPU {
                 self.sprite_evaluation_tick();
                 
                 // Every 8 cycles 8 new pixels can be constructed
-                if self.state.dots > 8 && self.state.dots % 8 == 1 {
+                if self.state.dots > 8 && (self.state.dots - 1) % 8 == 0 {
                     // Loads the shift registers with values from last 8 cycles
                     self.shift_reload();
                 }
@@ -925,6 +929,8 @@ impl PPU {
             if self.state.dots == 341 {
                 self.state.scanline += 1;
                 self.state.dots = 0;
+
+                return
             }
         }
 
@@ -936,17 +942,18 @@ impl PPU {
             // Doesn't active the NMI until the *second* PPU cycle
             if self.ctrl & 0b10000000 > 0 && self.state.dots >= 1 {
                 self.nmi = 1;
+                self.ctrl &= !0b1000_0000;
 
                 self.state.even_odd_frame = !self.state.even_odd_frame;
-
-                // Update the screen
-                self.window.update_with_buffer(&self.color_buffer, SCREEN_WIDTH, SCREEN_HEIGHT).expect("Failed to update screen!");
-                self.color_buffer.fill(0);
             }
 
             if self.state.dots == 341 {
                 self.state.scanline += 1;
                 self.state.dots = 0;
+
+                // Update the screen
+                self.window.update_with_buffer(&self.color_buffer, SCREEN_WIDTH, SCREEN_HEIGHT).expect("Failed to update screen!");
+                self.color_buffer.fill(0);
 
                 return
             }
@@ -954,29 +961,15 @@ impl PPU {
 
         // End of Vblank (scanline 260) — Cancel the ability to create new NMI's and fill shift registers for next frame (first two tiles)
         // The PPU doesn't do anything during these scanlines — just increases the clock (allows the PPU to change memory during Vblank)
-        if self.state.scanline < 261 && self.state.scanline > 241 {
+        if self.state.scanline < 261 && self.state.scanline >= 241 {
             // Doesn't active the NMI until the *second* PPU cycle
+            // Resets the NMI register in control
             if self.ctrl & 0b10000000 > 0 && self.state.dots >= 1 {
                 self.nmi = 1;
-
-                self.state.even_odd_frame = !self.state.even_odd_frame;
+                self.ctrl &= !0b1000_0000;
             }
 
-            // Doesn't active the NMI until the *second* PPU cycle
-            if self.ctrl & 0b10000000 > 0 && self.state.dots >= 1 {
-                self.nmi = 1;
-
-                self.state.even_odd_frame = !self.state.even_odd_frame;
-            }
-
-            if self.state.dots == 341 && self.state.scanline == 260 {
-                self.status &= !0b10000000;
-
-                self.state.scanline += 1;
-                self.state.dots = 0;
-
-                 return
-            } else if self.state.dots == 341 {
+            if self.state.dots == 341{
                 self.state.scanline += 1;
                 self.state.dots = 0;
 
@@ -1011,6 +1004,9 @@ impl PPU {
             // Reset the dots and scanline for the next frame (also sets the next frame to be even/odd)
             // Also resets various other things
             if self.state.dots == 341 {
+
+                self.state.even_odd_frame = !self.state.even_odd_frame;
+
                 self.state.dots = 0;
                 self.state.scanline = 0;
 
@@ -1066,7 +1062,8 @@ impl CPU {
     // Checks if an NMI has been requested and, if so, acts upon it — Acts just like BRK (which is for IRQ's) but is for NMI's (often Vblank)
     // CPU checks for an NMI every cycle
     fn nmi(&mut self) {
-        if self.cpu_bus.ppu.nmi > 0 {
+        if self.cpu_bus.ppu.nmi == 1 {
+            println!("ENTERED NMI");
             self.cpu_bus.ppu.nmi = 0;
 
             // padding byte
@@ -1104,6 +1101,7 @@ impl CPU {
 
     // Writes a byte to memory
     pub fn write_byte(&mut self, address: u16, data: u8) {
+        // println!("write");
         self.cpu_clk += 1;
         self.cpu_bus.mem_write(address, data);
 
@@ -1122,6 +1120,7 @@ impl CPU {
     }
 
     pub fn read_byte(&mut self, address: u16) -> u8 {
+        // println!("read");
         // If a halt has been requested, the CPU stops and executes the DMA — only allowed on read cycles
         if self.cpu_bus.halt_flag {
             self.cpu_bus.halt_flag = false;
@@ -1200,7 +1199,7 @@ impl CPU {
 
     pub fn decode(&mut self) {
         let instruction = self.fetch_byte();
-        //println!("instruction: {:X}", instruction);
+        println!("instruction: {:X}", instruction);
         // println!("pc: {}, s: {}, a: {}, x: {}, y: {}, p: {}", self.pc.wrapping_sub(1), self.sp, self.accumulator, self.x, self.y, self.status);
 
         let aaa = (instruction >> 5) & 0b111;

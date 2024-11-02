@@ -604,15 +604,15 @@ impl PPU {
         let mut pattern_addr: u16 = 0;
 
         if self.ctrl & 0b0001_0000 != 0 {
-            pattern_addr |= 0b0001_0000_0000_0000;
+            pattern_addr |= 0b1_0000_0000_0000;
         }
 
         if high {
-            pattern_addr |= 0b0000_0000_0000_1000
+            pattern_addr |= 0b1000
         }
 
         pattern_addr |= (addr as u16) << 4;
-        pattern_addr |= self.v >> 12; // Extracting fine y address
+        pattern_addr |= (self.v >> 12) & 0b111; // Extracting fine y address
 
         return self.ppu_bus.mem_read(pattern_addr)
     }
@@ -622,13 +622,11 @@ impl PPU {
         self.ppu_latch = (addr & 0xFF) as u8;
     }
 
-    fn mem_fetch(&mut self, addr: u16) -> u8 {
-        let rtrn = self.read_byte((addr & 0xFF00) | (self.ppu_latch as u16));
-        self.ppu_latch = (addr & 0xFF) as u8;
+    fn nametable_fetch(&mut self, addr: u16) -> u8 {
+        let v = (addr & 0xFF00) | (self.ppu_latch as u16);
+        let tile_addr = 0x2000 | (v & 0x0FFF);
 
-        self.v += 1;
-
-        rtrn
+        return self.read_byte(tile_addr)
     }
 
     fn shift(&mut self) {
@@ -672,7 +670,7 @@ impl PPU {
             },
             // Fetches the pattern table address from the nametable
             2 => {
-                self.state.nametable_data = self.mem_fetch(self.v);
+                self.state.nametable_data = self.nametable_fetch(self.v);
             },
             3 => {
                 self.load_latch(self.v);
@@ -694,9 +692,46 @@ impl PPU {
             // Fetches the high pattern bitplane from the pattern table
             _ => {
                 self.state.high_bitplane = self.fetch_pattern_table(true, self.state.nametable_data);
-                Should we be incrementing v by one here???
-                self.v += 1;
+
+                // Takes care of x scrolling
+                // 31 is the horizontal limit of a nametable (5 bits)
+                if (self.v & 0b1_1111) == 31 {
+                    self.v &= !0b1_1111;
+                    self.v ^= 0x0400;
+                } else {
+                    self.v += 1;
+                }
             },
+        }
+
+        // Handles y scrolling at the end of the scanline
+        if self.state.dots == 256 {
+            let mut fine_y = (self.v & 0b111_0000_0000_0000) >> 12;
+            
+            // Fine y overflows into coarse y
+            // Row 29 is the limit vertically, but coarse y can be set out of bounds
+            if fine_y < 7 {
+                fine_y += 1;
+                self.v = (self.v & !0b111_0000_0000_0000) | (fine_y << 12);
+            } else {
+                // Resets fine y and overflows into coarse y
+                self.v &= !0b111_0000_0000_0000;
+                let mut coarse_y = (self.v & 0b11_1110_0000) >> 5;
+
+                if coarse_y == 29 {
+                    coarse_y = 0;
+                    self.v ^= 0x0800;
+                } else if coarse_y == 31 {
+                    coarse_y = 0;
+                } else {
+                    coarse_y += 1;
+                }
+
+                self.v = (self.v & !0b11_1110_0000) | (coarse_y << 5);
+            }
+
+            let coarse_xt = self.t & 0b1_1111;
+            self.v = (self.v & !0b1_1111) | coarse_xt;
         }
     }
 

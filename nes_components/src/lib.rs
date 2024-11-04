@@ -380,8 +380,8 @@ impl PPUBus {
             },
 
             PALETTE_RAM_BEGIN..=PALETTE_RAM_END => {
-                // This value is what points to the red byte in palette_storage (+1 -> green and +2 -> blue)
-                return (addr - PALETTE_RAM_BEGIN) as u8 & (NUM_PALETTE_REGISTERS - 1) as u8
+                // 3 times this value is what points to the red byte in palette_storage (+1 -> green and +2 -> blue)
+                return (addr - PALETTE_RAM_BEGIN) as u8 % NUM_PALETTE_REGISTERS as u8
             }
 
             // Open bus behavior — multiplexed with pins 31-38, accesses the low byte of the address
@@ -643,19 +643,6 @@ impl PPU {
     }
 
     fn shift_reload(&mut self) {
-        // I don't think this is how reloadng the attribute shift registers will work
-        // if self.state.attribute_data & 0b0000_0001 != 0 {
-        //     self.low_attr_shift_reg = 0xFF;
-        // } else {
-        //     self.low_attr_shift_reg = 0;
-        // }
-
-        // if self.state.attribute_data & 0b0000_0010 != 0 {
-        //     self.high_attr_shift_reg = 0xFF;
-        // } else {
-        //     self.high_attr_shift_reg = 0;
-        // }
-
         self.state.attribute_latch = self.state.attribute_data;
 
         self.low_pttrn_shift_reg = self.state.low_bitplane as u16;
@@ -663,6 +650,7 @@ impl PPU {
     }
 
     fn continue_render(&mut self) {
+        // We need to make it so that the attribute and nametable data from the sprites doesn't get overriden by these garbage fetches
         match self.state.dots % 8 {
             // 1, 3, 5, 7 are all used to store the address in the latch
             1 => {
@@ -670,14 +658,20 @@ impl PPU {
             },
             // Fetches the pattern table address from the nametable
             2 => {
-                self.state.nametable_data = self.nametable_fetch(self.v);
+                // If statement to prevent overriding the nametable data stored by sprite evaluation
+                if self.state.dots <= 256 {
+                    self.state.nametable_data = self.nametable_fetch(self.v);
+                }
             },
             3 => {
                 self.load_latch(self.v);
             },
             // Fetches the attribute data from the attribute table
             4 => {
-                self.state.attribute_data = self.fetch_attribute_data(self.v);
+                // If statement to prevent overriding the attribute data stored by sprite evaluation
+                if self.state.dots <= 256 {
+                    self.state.attribute_data = self.fetch_attribute_data(self.v);
+                }
             },
             5 => {
                 self.load_latch(self.v);
@@ -692,16 +686,18 @@ impl PPU {
             // Fetches the high pattern bitplane from the pattern table
             _ => {
                 self.state.high_bitplane = self.fetch_pattern_table(true, self.state.nametable_data);
-
-                // Takes care of x scrolling
-                // 31 is the horizontal limit of a nametable (5 bits)
-                if (self.v & 0b1_1111) == 31 {
-                    self.v &= !0b1_1111;
-                    self.v ^= 0x0400;
-                } else {
-                    self.v += 1;
-                }
             },
+        }
+
+        if self.state.dots > 8 && (self.state.dots - 1) % 8 == 0 {
+            // Takes care of x scrolling
+            // 31 is the horizontal limit of a nametable (5 bits)
+            if (self.v & 0b1_1111) == 31 {
+                self.v &= !0b1_1111;
+                self.v ^= 0x0400;
+            } else {
+                self.v += 1;
+            }
         }
 
         // Handles y scrolling at the end of the scanline
@@ -739,6 +735,45 @@ impl PPU {
     fn sprite_evaluation_tick(&mut self) {
         if self.state.dots == 0 {
             return
+        }
+
+        if self.state.dots <= 320 && self.state.dots > 256 {
+            if self.state.dots == 257 {
+                self.state.secondary_oam_addr = 0;
+            }
+
+            println!("dots: {}", self.state.dots);
+            match self.state.dots % 8 {
+                1 => {
+                    self.sprite_y = self.secondary_oam[self.state.secondary_oam_addr as usize];
+                    self.state.secondary_oam_addr += 1;
+                },
+                2 => {
+                    self.state.nametable_data = self.secondary_oam[self.state.secondary_oam_addr as usize];
+                    self.state.secondary_oam_addr += 1;
+                },
+                3 => {
+                    self.state.attribute_data = self.secondary_oam[self.state.secondary_oam_addr as usize];
+                    self.state.secondary_oam_addr += 1;
+                },
+                4 | 5 | 6 | 7 | 8 => {
+                    self.sprite_x = self.secondary_oam[self.state.secondary_oam_addr as usize];
+                },
+                _ => {
+                    self.state.secondary_oam_addr += 1;
+                }
+            }
+
+            if self.state.dots == 320 {
+                self.state.secondary_oam_addr = 0;
+            }
+
+            return
+        }
+
+        if self.state.dots <= 340 && self.state.dots > 320 {
+            // Reading the first byte in secondary OAM while the PPU fetches the first two background tiles
+            let _ = self.secondary_oam[self.state.secondary_oam_addr as usize];
         }
 
         if self.state.dots % 2 == 0 {
@@ -785,31 +820,6 @@ impl PPU {
                         self.state.sprite_addr += 1;
                     }
                 }
-            } else if self.state.dots < 320 {
-                self.state.secondary_oam_addr = 0;
-
-                match (self.state.dots - 1) % 8 {
-                    0 => {
-                        self.sprite_y = self.secondary_oam[self.state.secondary_oam_addr as usize];
-                        self.state.secondary_oam_addr += 1;
-                    },
-                    1 => {
-                        self.state.nametable_data = self.secondary_oam[self.state.secondary_oam_addr as usize];
-                        self.state.secondary_oam_addr += 1;
-                    },
-                    2 => {
-                        self.state.attribute_data = self.secondary_oam[self.state.secondary_oam_addr as usize];
-                        self.state.secondary_oam_addr += 1;
-                    },
-                    3 | 4 | 5 | 6 => {
-                        self.sprite_x = self.secondary_oam[self.state.secondary_oam_addr as usize];
-                    },
-                    _ => {
-                        self.state.secondary_oam_addr += 1;
-                    }
-                }
-            } else {
-                // Clock cycle is wasted trying to reading from secondary oam with byte when it has already gone through them all
             }
         } else {
             if self.oam_addr == 64 {
@@ -860,8 +870,8 @@ impl PPU {
         let palette_addr = self.ppu_bus.mem_read(PALETTE_RAM_BEGIN as u16 + self.pixel as u16) as usize;
 
         let r = self.ppu_bus.palette_storage[palette_addr * 3];
-        let g = self.ppu_bus.palette_storage[palette_addr * 3 + 1];
-        let b = self.ppu_bus.palette_storage[palette_addr * 3 + 2];
+        let g = self.ppu_bus.palette_storage[(palette_addr * 3) + 1];
+        let b = self.ppu_bus.palette_storage[(palette_addr * 3) + 2];
 
         return (r, g, b)
     }
@@ -900,6 +910,8 @@ impl PPU {
                                     | (((self.low_attr_shift_reg >> (7 - self.x)) & 0x1) << 2)
                                     | (((self.high_attr_shift_reg >> (7 - self.x)) & 0x1) << 3);
 
+                // println!("self.back_pixel: {:0b}", self.back_pixel);
+
                 if self.state.scanline > 0 {
                     self.compare_against_sprites();
                 } else {
@@ -907,6 +919,7 @@ impl PPU {
                 }
 
                 let (r, g, b) = self.fetch_rgb();
+                // println!("r: {}, g: {}, b: {}", r, g, b);
                 let rgb_value = ((r as u32) << 16) | ((g as u32) << 8) | b as u32;
 
                 // Stores the color output of the pixel in a buffer
@@ -919,10 +932,10 @@ impl PPU {
                 self.shift();
             } else if self.state.dots <= 320 {
                 // Garbage nametable fetches — allows for reusing circuitry in hardware
-                self.sprite_evaluation_tick();
                 self.continue_render();
+                self.sprite_evaluation_tick();
 
-                if self.state.dots > 8 && self.state.dots % 8 == 1 {
+                if self.state.dots > 8 && (self.state.dots - 1) % 8 == 0 {
                     self.shift_reload();
                 }
 
@@ -931,11 +944,13 @@ impl PPU {
                          | ((((self.high_pttrn_shift_reg >> 15 - self.x) & 0x1) << 1) as u8)
                          | (((self.low_attr_shift_reg >> 7 - self.x) & 0x1) << 2)
                          | (((self.high_attr_shift_reg >> 7 - self.x) & 0x1) << 3),
-                    priority: (self.state.attribute_data & 0b10_0000 > 0) as u8,
-                    horizontal_flip: (self.state.attribute_data & 0b100_0000 > 0) as u8,
-                    vertical_flip: (self.state.attribute_data & 0b100_0000 > 0) as u8 };
+                    priority: ((self.state.attribute_data & 0b10_0000) > 0) as u8,
+                    horizontal_flip: ((self.state.attribute_data & 0b100_0000) > 0) as u8,
+                    vertical_flip: ((self.state.attribute_data & 0b100_0000) > 0) as u8 };
                 
                 self.sprite_buffer_addr += 1;
+
+                self.shift();
             } else if self.state.dots <= 336 {
                 // This will load the pattern shift registers with two tiles worth of data
                 // The attribute registers will have their second tile data stored in the self.state.attribute_data latch
